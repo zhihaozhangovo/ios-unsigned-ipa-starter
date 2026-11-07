@@ -15,14 +15,14 @@ private enum AgentMode: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
-        case .local: return "本地工具 · 云端模型"
-        case .sandbox: return "隔离环境 · 云端模型"
+        case .local: return "Alpine Linux 虚拟环境 · 云端模型"
+        case .sandbox: return "云端隔离环境 · 云端模型"
         }
     }
 
     var icon: String {
         switch self {
-        case .local: return "ipad.and.iphone"
+        case .local: return "terminal.fill"
         case .sandbox: return "shippingbox.fill"
         }
     }
@@ -36,8 +36,8 @@ private enum AgentMode: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .local: return "调用云端模型，使用已授权的 iPad 文件与设备能力。"
-        case .sandbox: return "调用云端模型，在隔离环境运行代码、网页和长任务。"
+        case .local: return "调用云端模型，任务运行在受控的 Alpine Linux 虚拟环境中。"
+        case .sandbox: return "调用云端模型，在云端隔离环境运行代码、网页和长任务。"
         }
     }
 }
@@ -71,6 +71,7 @@ private enum FeatureDestination: String, CaseIterable, Identifiable {
     case automation
     case multiAgent
     case artifacts
+    case pluginMarket
     case systemPrompt
 
     var id: String { rawValue }
@@ -105,6 +106,7 @@ private enum FeatureDestination: String, CaseIterable, Identifiable {
         case .automation: return "自动化与定时任务"
         case .multiAgent: return "多 Agent 协作"
         case .artifacts: return "文件与产物"
+        case .pluginMarket: return "插件市场"
         case .systemPrompt: return "系统提示词"
         }
     }
@@ -139,6 +141,7 @@ private enum FeatureDestination: String, CaseIterable, Identifiable {
         case .automation: return "clock.arrow.circlepath"
         case .multiAgent: return "person.3.fill"
         case .artifacts: return "shippingbox.fill"
+        case .pluginMarket: return "storefront.fill"
         case .systemPrompt: return "text.badge.star"
         }
     }
@@ -159,12 +162,13 @@ private enum FeatureDestination: String, CaseIterable, Identifiable {
         case .webResearch: return .blue
         case .automation: return .purple
         case .artifacts: return .orange
+        case .pluginMarket: return .green
         }
     }
 
     var detail: String {
         switch self {
-        case .providers: return "管理 OpenAI、Anthropic、Google、Sub2API、NewAPI 等云端服务商，支持 API Key、OAuth 和连接测试。"
+        case .providers: return "管理云端服务商，支持 API Key、OAuth、连接测试和兼容服务自动探测。"
         case .modelGroups: return "创建模型分组，设置默认模型、备用模型、上下文长度和路由规则。"
         case .tokenUsage: return "查看请求次数、Token、成本、余额和每日用量上限。"
         case .appearance: return "自定义主题、字体、气泡、侧栏宽度和工作区布局。"
@@ -192,6 +196,7 @@ private enum FeatureDestination: String, CaseIterable, Identifiable {
         case .automation: return "创建事件触发、定时执行和结果通知。"
         case .multiAgent: return "让多个 Agent 并行研究、写作、编码和审校。"
         case .artifacts: return "管理文档、表格、图片、代码、演示文稿和版本。"
+        case .pluginMarket: return "发现、安装和管理可审计的工具、技能、MCP 服务器与工作流插件。"
         case .systemPrompt: return "自定义系统提示词，并让 AI 根据目标自动生成和优化。"
         }
     }
@@ -357,6 +362,7 @@ struct ContentView: View {
                 CapabilityRow(title: "多 Agent 协作", icon: "person.3.fill", color: .purple) { activeFeature = .multiAgent }
                 CapabilityRow(title: "自动化与定时", icon: "clock.arrow.circlepath", color: .pink) { activeFeature = .automation }
                 CapabilityRow(title: "文件与产物", icon: "shippingbox.fill", color: .teal) { activeFeature = .artifacts }
+                CapabilityRow(title: "插件市场", icon: "storefront.fill", color: .green) { activeFeature = .pluginMarket }
             }
         }
         .listStyle(.sidebar)
@@ -372,33 +378,45 @@ struct ContentView: View {
     }
 
     private var emptyWorkspace: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(.secondary)
-            Text("未选择对话")
-                .font(.title2.weight(.semibold))
-            Text("选择一个对话，或从左侧开始新任务")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Button {
-                beginConversation()
-            } label: {
-                Label("开始新对话", systemImage: "plus")
-                    .font(.headline)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(uiColor: .systemBackground))
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("新的任务").font(.title3.weight(.semibold))
+                    Text("云端模型 · 选择一个执行环境开始").font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
                 Button { showSettings = true } label: {
                     Image(systemName: "slider.horizontal.3")
+                        .font(.title3)
                 }
+                .buttonStyle(.plain)
             }
+            .padding(.horizontal, 34)
+            .padding(.vertical, 16)
+            .background(.bar)
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("有什么可以帮忙？")
+                            .font(.system(size: 30, weight: .semibold))
+                        Text("输入目标，Agent 会先制定计划，再调用你授权的工具完成任务。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    modePicker
+                    advancedCapabilities
+                    composer
+                }
+                .frame(maxWidth: 1040)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 34)
+                .padding(.vertical, 34)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
         }
     }
 
@@ -529,6 +547,7 @@ struct ContentView: View {
                 CapabilityCard(title: "多 Agent", subtitle: "并行研究 · 审校", icon: "person.3.fill", color: .purple) { activeFeature = .multiAgent }
                 CapabilityCard(title: "自动化", subtitle: "定时 · 事件触发", icon: "clock.arrow.circlepath", color: .pink) { activeFeature = .automation }
                 CapabilityCard(title: "文件产物", subtitle: "文档 · 表格 · 导出", icon: "shippingbox.fill", color: .teal) { activeFeature = .artifacts }
+                CapabilityCard(title: "插件市场", subtitle: "工具 · MCP · 技能", icon: "storefront.fill", color: .green) { activeFeature = .pluginMarket }
             }
         }
     }
@@ -548,7 +567,7 @@ struct ContentView: View {
                     .font(.body)
                     .overlay(alignment: .topLeading) {
                         if prompt.isEmpty {
-                            Text("描述你想完成的任务…")
+                            Text("例如：分析这份文件并整理出关键结论…")
                                 .foregroundStyle(.tertiary)
                                 .padding(.top, 8)
                                 .allowsHitTesting(false)
@@ -571,7 +590,7 @@ struct ContentView: View {
                 Image(systemName: "cloud.fill")
                 Text("云端模型")
                 Text("·")
-                Text(selectedMode == .local ? "仅使用已授权的本地工具" : "隔离云端环境")
+                Text(selectedMode == .local ? "Alpine Linux 虚拟环境" : "云端隔离环境")
                 Spacer()
                 Text("⌘ ↵ 发送")
             }
@@ -625,59 +644,42 @@ private struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: .systemBackground).ignoresSafeArea()
-            VStack(spacing: 22) {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 0) {
                 HStack {
                     Label("iPad Agent", systemImage: "sparkles")
                         .font(.headline)
+                        .foregroundStyle(.white)
                     Spacer()
                     Button("跳过") { onFinish() }
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 28)
-                .padding(.top, 20)
+                .padding(.horizontal, 34)
+                .padding(.top, 22)
 
                 TabView(selection: $page) {
-                    OnboardingPage(
-                        icon: "sparkles",
-                        color: .blue,
-                        title: "欢迎使用 iPad Agent",
-                        subtitle: "一个可配置、可审计、可扩展的云端 Agent 工作台。",
-                        features: ["所有模式均使用云端模型", "本地工具与云端沙盒可按任务切换", "执行高风险操作前会请求确认"]
-                    ).tag(0)
-                    OnboardingPage(
-                        icon: "key.fill",
-                        color: .orange,
-                        title: "先连接你的 AI 服务",
-                        subtitle: "支持 OpenAI 兼容接口、Sub2API、NewAPI 以及 OAuth 服务商。",
-                        features: ["API Key 与 OAuth 安全保存", "连接测试、余额查询和 Token 用量", "主模型、备用模型和智能路由"]
-                    ).tag(1)
-                    OnboardingPage(
-                        icon: "wand.and.stars",
-                        color: .purple,
-                        title: "把 Agent 配成你的工作方式",
-                        subtitle: "自定义灵魂、系统提示词、工具、技能、记忆和自动化。",
-                        features: ["AI 辅助填写系统提示词", "网页研究、代码执行、MCP 与子代理", "文件产物、同步、备份和日志"]
-                    ).tag(2)
+                    OnboardingPage(icon: "sparkles", color: .blue, title: "欢迎使用 iPad Agent", subtitle: "一个简洁的云端 Agent 工作台。", features: ["云端模型统一处理", "Alpine 虚拟环境与云端沙盒按任务切换", "高风险操作执行前确认"]).tag(0)
+                    OnboardingPage(icon: "key.fill", color: .orange, title: "连接 AI 服务", subtitle: "连接后自动识别兼容服务，只在用量页展示余额。", features: ["支持 OpenAI 兼容接口与 OAuth", "自动探测服务类型和可用模型", "用量、成本和余额集中查看"]).tag(1)
+                    OnboardingPage(icon: "puzzlepiece.extension.fill", color: .purple, title: "安装你的工具", subtitle: "从插件市场安装 MCP、技能和工作流。", features: ["网页研究、文件处理和代码执行", "插件安装前展示权限和数据范围", "系统提示词可由 AI 辅助生成"]).tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .always))
 
-                HStack(spacing: 14) {
+                HStack(spacing: 12) {
                     if page > 0 {
-                        Button("上一步") { withAnimation { page -= 1 } }
+                        Button("上一步") { withAnimation(.easeInOut) { page -= 1 } }
+                            .font(.subheadline)
                             .buttonStyle(.bordered)
+                            .tint(.secondary)
                     }
                     Spacer()
                     Button(page == 2 ? "开始使用" : "继续") {
-                        if page == 2 {
-                            onFinish()
-                        } else {
-                            withAnimation { page += 1 }
-                        }
+                        if page == 2 { onFinish() } else { withAnimation(.easeInOut) { page += 1 } }
                     }
+                    .font(.subheadline.weight(.semibold))
                     .buttonStyle(.borderedProminent)
                 }
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 34)
                 .padding(.bottom, 26)
             }
         }
@@ -692,28 +694,36 @@ private struct OnboardingPage: View {
     let features: [String]
 
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 18) {
             Spacer()
             Image(systemName: icon)
-                .font(.system(size: 52, weight: .medium))
-                .foregroundStyle(.white)
-                .frame(width: 112, height: 112)
-                .background(LinearGradient(colors: [color, color.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .clipShape(RoundedRectangle(cornerRadius: 30))
-            VStack(spacing: 10) {
-                Text(title).font(.largeTitle.weight(.bold)).multilineTextAlignment(.center)
-                Text(subtitle).font(.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                .font(.system(size: 30, weight: .medium))
+                .foregroundStyle(color)
+                .frame(width: 70, height: 70)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+            VStack(spacing: 7) {
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
-            VStack(alignment: .leading, spacing: 13) {
+            VStack(alignment: .leading, spacing: 11) {
                 ForEach(features, id: \.self) { feature in
-                    Label(feature, systemImage: "checkmark.circle.fill")
+                    Label(feature, systemImage: "checkmark")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: 520, alignment: .leading)
+            .frame(maxWidth: 500, alignment: .leading)
+            .padding(.top, 8)
             Spacer()
         }
-        .padding(.horizontal, 28)
+        .padding(.horizontal, 34)
     }
 }
 
@@ -892,7 +902,7 @@ private struct SettingsView: View {
         NavigationStack {
             List {
                 Section("AI 服务商") {
-                    SettingsRow(feature: .providers, subtitle: "OpenAI · Anthropic · Google · Sub2API · NewAPI", action: onFeature)
+                    SettingsRow(feature: .providers, subtitle: "兼容服务 · 自动探测 · 连接测试", action: onFeature)
                     SettingsRow(feature: .modelGroups, subtitle: "默认模型 · 备用模型 · 路由", action: onFeature)
                     SettingsRow(feature: .tokenUsage, subtitle: "Token · 成本 · 余额 · 限额", action: onFeature)
                 }
@@ -901,6 +911,7 @@ private struct SettingsView: View {
                     SettingsRow(feature: .systemPrompt, subtitle: "自定义内容 · AI 辅助生成", action: onFeature)
                 }
                 Section("Agent 运行时") {
+                    SettingsRow(feature: .pluginMarket, subtitle: "工具 · MCP · 技能 · 工作流", action: onFeature)
                     SettingsRow(feature: .tools, subtitle: "网页 · 浏览器 · 文件 · OCR · 代码", action: onFeature)
                     SettingsRow(feature: .subagents, subtitle: "并行度 · 角色 · 交接规则", action: onFeature)
                     SettingsRow(feature: .skills, subtitle: "技能 · 模板 · 工作流", action: onFeature)
@@ -969,7 +980,8 @@ private struct FeatureDetailSheet: View {
     let onComplete: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var providerName = "OpenAI Compatible"
-    @State private var endpoint = "https://api.example.com/v1"
+    @State private var endpoint = ""
+    @State private var apiKey = ""
     @State private var isEnabled = true
     @State private var checkResult = "尚未检测"
     @State private var customText = ""
@@ -1002,6 +1014,8 @@ private struct FeatureDetailSheet: View {
                     balanceSection
                 } else if feature == .systemPrompt || feature == .soul || feature == .skills {
                     promptSection
+                } else if feature == .pluginMarket {
+                    pluginMarketSection
                 } else {
                     genericSection
                 }
@@ -1038,23 +1052,35 @@ private struct FeatureDetailSheet: View {
 
     private var providerSection: some View {
         Group {
-            Section("服务商") {
-                TextField("服务商名称", text: $providerName)
-                TextField("API Endpoint", text: $endpoint)
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("兼容服务自动探测", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.headline)
+                    Text("保存连接信息后，Agent 会自动识别兼容的服务并在用量页显示余额。服务商名称不占用主界面。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 5)
+            }
+            Section("连接配置") {
+                TextField("服务商名称（可选）", text: $providerName)
+                    .foregroundStyle(.primary)
+                TextField("API Endpoint，例如 https://api.example.com/v1", text: $endpoint)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
-                SecureField("API Key / OAuth Token", text: .constant(""))
-                Button("测试连接") { checkResult = "连接成功 · 200 OK" }
-                Label(checkResult, systemImage: checkResult.contains("成功") ? "checkmark.circle.fill" : "circle.dotted")
-                    .foregroundStyle(checkResult.contains("成功") ? .green : .secondary)
+                    .foregroundStyle(.primary)
+                SecureField("API Key 或 OAuth Token", text: $apiKey)
+                Button("测试连接并自动识别") { checkResult = "已连接 · 正在探测服务类型" }
+                Label(checkResult, systemImage: checkResult.contains("已连接") ? "checkmark.circle.fill" : "circle.dotted")
+                    .foregroundStyle(checkResult.contains("已连接") ? .green : .secondary)
             }
-            Section("兼容服务") {
-                ProviderBalanceRow(name: "Sub2API", balance: "$ 128.40", status: "已连接", color: .blue)
-                ProviderBalanceRow(name: "NewAPI", balance: "¥ 86.20", status: "已连接", color: .purple)
+            Section("余额概览") {
+                BalanceSummaryRow(title: "美元余额", balance: "$ 128.40", detail: "自动探测 · 刚刚更新", color: .blue)
+                BalanceSummaryRow(title: "人民币余额", balance: "¥ 86.20", detail: "自动探测 · 刚刚更新", color: .purple)
                 Button {
                     checkResult = "余额已刷新 · 刚刚"
                 } label: {
-                    Label("刷新 Sub2API / NewAPI 余额", systemImage: "arrow.clockwise")
+                    Label("刷新余额", systemImage: "arrow.clockwise")
                 }
             }
         }
@@ -1077,8 +1103,8 @@ private struct FeatureDetailSheet: View {
                 Toggle("按成本自动路由", isOn: .constant(true))
             }
             Section("默认执行模式") {
-                Label("本地模式：iPad 本地工具 + 云端模型", systemImage: "ipad.and.iphone")
-                Label("沙盒模式：远程隔离工具 + 云端模型", systemImage: "shippingbox.fill")
+                Label("本地模式：Alpine Linux 虚拟环境 + 云端模型", systemImage: "terminal.fill")
+                Label("沙盒模式：云端隔离环境 + 云端模型", systemImage: "shippingbox.fill")
             }
         }
     }
@@ -1090,10 +1116,10 @@ private struct FeatureDetailSheet: View {
                 UsageMetric(title: "本月成本", value: "$ 8.42", detail: "预算 $ 30.00")
                 UsageMetric(title: "请求次数", value: "428", detail: "成功率 99.1%")
             }
-            Section("余额查询") {
-                ProviderBalanceRow(name: "Sub2API", balance: "$ 128.40", status: "刚刚更新", color: .blue)
-                ProviderBalanceRow(name: "NewAPI", balance: "¥ 86.20", status: "刚刚更新", color: .purple)
-                Button("立即查询余额") { }
+            Section("余额") {
+                BalanceSummaryRow(title: "美元余额", balance: "$ 128.40", detail: "自动探测 · 刚刚更新", color: .blue)
+                BalanceSummaryRow(title: "人民币余额", balance: "¥ 86.20", detail: "自动探测 · 刚刚更新", color: .purple)
+                Button("立即刷新") { }
             }
         }
     }
@@ -1121,6 +1147,22 @@ private struct FeatureDetailSheet: View {
                 Toggle("应用到所有新对话", isOn: $isEnabled)
                 Toggle("允许项目覆盖", isOn: .constant(true))
                 Toggle("保留版本历史", isOn: .constant(true))
+            }
+        }
+    }
+
+    private var pluginMarketSection: some View {
+        Group {
+            Section("推荐插件") {
+                PluginMarketRow(name: "网页研究套件", detail: "搜索、浏览、引用核验", icon: "globe", color: .blue)
+                PluginMarketRow(name: "GitHub 工作区", detail: "仓库、Issue、Pull Request", icon: "chevron.left.forwardslash.chevron.right", color: .purple)
+                PluginMarketRow(name: "文件与文档", detail: "PDF、Office、OCR、导出", icon: "doc.text.fill", color: .orange)
+                PluginMarketRow(name: "Alpine 执行工具", detail: "终端、Python、Node.js、包管理", icon: "terminal.fill", color: .green)
+            }
+            Section("插件规则") {
+                Label("插件通过 MCP、技能或工作流接入", systemImage: "checkmark.shield")
+                Label("安装前显示权限、网络范围和数据访问", systemImage: "lock.shield")
+                Label("支持禁用、卸载和查看调用日志", systemImage: "arrow.uturn.backward")
             }
         }
     }
@@ -1154,6 +1196,59 @@ private struct ProviderBalanceRow: View {
             Spacer()
             Text(balance).font(.subheadline.weight(.semibold))
         }
+    }
+}
+
+private struct BalanceSummaryRow: View {
+    let title: String
+    let balance: String
+    let detail: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "creditcard.fill")
+                .foregroundStyle(color)
+                .frame(width: 28, height: 28)
+                .background(color.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(balance).font(.subheadline.weight(.semibold))
+        }
+    }
+}
+
+private struct PluginMarketRow: View {
+    let name: String
+    let detail: String
+    let icon: String
+    let color: Color
+    @State private var installed = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+                .frame(width: 32, height: 32)
+                .background(color.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name).font(.subheadline.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(installed ? "已安装" : "安装") {
+                installed.toggle()
+            }
+            .font(.caption.weight(.semibold))
+            .buttonStyle(.bordered)
+            .tint(installed ? .secondary : color)
+        }
+        .padding(.vertical, 4)
     }
 }
 
