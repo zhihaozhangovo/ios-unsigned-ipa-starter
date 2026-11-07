@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import Security
 
 private enum AgentMode: String, CaseIterable, Identifiable {
     case local
@@ -40,6 +41,37 @@ private enum AgentMode: String, CaseIterable, Identifiable {
         case .local: return "调用云端模型，任务运行在受控的 Alpine Linux 虚拟环境中。"
         case .sandbox: return "调用云端模型，在云端隔离环境运行代码、网页和长任务。"
         }
+    }
+}
+
+private enum SecureStore {
+    private static let service = "com.example.IPAStarter.provider"
+    private static let account = "api-key"
+
+    static func save(_ value: String) {
+        guard let data = value.data(using: .utf8) else { return }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+        let item = query.merging([kSecValueData as String: data]) { _, new in new }
+        SecItemAdd(item as CFDictionary, nil)
+    }
+
+    static func read() -> String {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 }
 
@@ -1226,6 +1258,7 @@ private struct FeatureDetailSheet: View {
     @State private var isQueryingBalance = false
     @State private var detectedModels: [String] = []
     @State private var showPromptAssistant = false
+    @State private var didLoadProviderCredentials = false
 
     var body: some View {
         NavigationStack {
@@ -1282,7 +1315,14 @@ private struct FeatureDetailSheet: View {
                     Button("关闭") { dismiss() }
                 }
             }
-            .onAppear { customText = systemPrompt }
+            .onAppear {
+                customText = systemPrompt
+                if !didLoadProviderCredentials {
+                    endpoint = UserDefaults.standard.string(forKey: "iPadAgent.providerEndpoint") ?? ""
+                    apiKey = SecureStore.read()
+                    didLoadProviderCredentials = true
+                }
+            }
             .sheet(isPresented: $showPromptAssistant) {
                 PromptAssistantSheet(prompt: $customText)
                     .presentationDetents([.medium, .large])
@@ -1443,6 +1483,8 @@ private struct FeatureDetailSheet: View {
             checkResult = "等待配置"
             return
         }
+        UserDefaults.standard.set(endpoint, forKey: "iPadAgent.providerEndpoint")
+        SecureStore.save(apiKey)
         isQueryingBalance = true
         defer { isQueryingBalance = false }
         do {
