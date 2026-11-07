@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 private enum AgentMode: String, CaseIterable, Identifiable {
     case local
@@ -39,6 +40,241 @@ private enum AgentMode: String, CaseIterable, Identifiable {
         case .local: return "调用云端模型，任务运行在受控的 Alpine Linux 虚拟环境中。"
         case .sandbox: return "调用云端模型，在云端隔离环境运行代码、网页和长任务。"
         }
+    }
+}
+
+private struct ProviderBalanceSnapshot: Identifiable {
+    let id = UUID()
+    let source: String
+    let remaining: Double
+    let used: Double?
+    let total: Double?
+    let unit: String
+    let expiresAt: Date?
+    let updatedAt = Date()
+
+    var displayBalance: String {
+        let normalized = unit.lowercased()
+        if normalized.contains("usd") || normalized == "$" {
+            return String(format: "$ %.2f", remaining)
+        }
+        if normalized.contains("cny") || normalized.contains("rmb") || normalized == "¥" {
+            return String(format: "¥ %.2f", remaining)
+        }
+        if normalized == "quota" || normalized == "points" {
+            return String(format: "%.0f %@", remaining, unit)
+        }
+        return String(format: "%.2f %@", remaining, unit)
+    }
+
+    var updatedLabel: String {
+        if let expiresAt {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            return "更新于刚刚 · 到期 \(formatter.string(from: expiresAt))"
+        }
+        return "更新于刚刚"
+    }
+}
+
+private enum ProviderBalanceError: LocalizedError {
+    case missingConfiguration
+    case invalidEndpoint
+    case unauthorized
+    case unavailable
+    case unreadableResponse
+    case balanceNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .missingConfiguration: return "请先填写 Endpoint 和 API Key"
+        case .invalidEndpoint: return "Endpoint 无效"
+        case .unauthorized: return "认证失败，请检查 API Key"
+        case .unavailable: return "未发现兼容的余额接口"
+        case .unreadableResponse: return "服务器返回了无法读取的内容"
+        case .balanceNotFound: return "接口可访问，但没有返回余额字段"
+        }
+    }
+}
+
+private struct ProviderBalanceService {
+    private static let usagePath = "/v1/usage"
+    private static let tokenUsagePath = "/api/usage/token"
+
+    static func query(endpoint: String, token: String) async throws -> [ProviderBalanceSnapshot] {
+        let candidates = try candidateURLs(endpoint)
+        var sawReadableResponse = false
+        for (path, url) in candidates {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 8
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+            let (data, response): (Data, URLResponse)
+            do {
+                (data, response) = try await URLSession.shared.data(for: request)
+            } catch {
+                continue
+            }
+            guard let http = response as? HTTPURLResponse else { continue }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw ProviderBalanceError.unauthorized
+            }
+            if http.statusCode == 404 { continue }
+            guard (200..<300).contains(http.statusCode) else { continue }
+            guard let json = try? JSONSerialization.jsonObject(with: data) else { continue }
+            sawReadableResponse = true
+
+            if path == usagePath, let snapshot = parseSub2API(json) {
+                return [snapshot]
+            }
+            if path == tokenUsagePath, let snapshot = parseNewAPI(json) {
+                return [snapshot]
+            }
+        }
+        if sawReadableResponse { throw ProviderBalanceError.balanceNotFound }
+        throw ProviderBalanceError.unavailable
+    }
+
+    private static func candidateURLs(_ endpoint: String) throws -> [(String, URL)] {
+        var base = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !base.isEmpty else { throw ProviderBalanceError.missingConfiguration }
+        while base.hasSuffix("/") { base.removeLast() }
+        var bases = [base]
+        if base.lowercased().hasSuffix("/v1") {
+            let root = String(base.dropLast(3)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !root.isEmpty { bases.append(root) }
+        }
+        var result: [(String, URL)] = []
+        var seen = Set<String>()
+        for item in bases {
+            let paths = item.lowercased().hasSuffix("/v1") ? ["/usage", tokenUsagePath] : [usagePath, tokenUsagePath]
+            for path in paths {
+                let string = item + path
+                guard !seen.contains(string), let url = URL(string: string), url.scheme != nil, url.host != nil else { continue }
+                seen.insert(string)
+                result.append((path == "/usage" ? usagePath : path, url))
+            }
+        }
+        guard !result.isEmpty else { throw ProviderBalanceError.invalidEndpoint }
+        return result
+    }
+
+    private static func parseSub2API(_ json: Any) -> ProviderBalanceSnapshot? {
+        let remaining = number(in: json, keys: ["remaining", "available", "balance", "user_balance"])
+        guard let remaining else { return nil }
+        let used = number(in: json, keys: ["used", "consumed", "usage"])
+        let total = number(in: json, keys: ["total", "granted"])
+        let unit = string(in: json, keys: ["unit"]) ?? "USD"
+        let active = bool(in: json, keys: ["is_active", "isvalid", "valid"])
+        if active == false { return nil }
+        return ProviderBalanceSnapshot(source: "兼容服务", remaining: remaining, used: used, total: total, unit: unit, expiresAt: nil)
+    }
+
+    private static func parseNewAPI(_ json: Any) -> ProviderBalanceSnapshot? {
+        let payload = (json as? [String: Any])?["data"] ?? json
+        let remaining = number(in: payload, keys: ["total_available", "available", "remaining"])
+        guard let remaining else { return nil }
+        let used = number(in: payload, keys: ["total_used", "used"])
+        let total = number(in: payload, keys: ["total_granted", "total"])
+        let expires = number(in: payload, keys: ["expires_at"]).flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        return ProviderBalanceSnapshot(source: "兼容服务", remaining: remaining, used: used, total: total, unit: "quota", expiresAt: expires)
+    }
+
+    private static func number(in value: Any, keys: [String]) -> Double? {
+        for key in keys {
+            if let found = find(value, key: key.lowercased()), let number = toDouble(found) { return number }
+        }
+        return nil
+    }
+
+    private static func string(in value: Any, keys: [String]) -> String? {
+        for key in keys {
+            if let found = find(value, key: key.lowercased()), let string = found as? String, !string.isEmpty { return string }
+        }
+        return nil
+    }
+
+    private static func bool(in value: Any, keys: [String]) -> Bool? {
+        for key in keys {
+            if let found = find(value, key: key.lowercased()) as? Bool { return found }
+        }
+        return nil
+    }
+
+    private static func find(_ value: Any, key: String) -> Any? {
+        if let dictionary = value as? [String: Any] {
+            for (candidate, nested) in dictionary {
+                if candidate.lowercased() == key { return nested }
+            }
+            for nested in dictionary.values {
+                if let found = find(nested, key: key) { return found }
+            }
+        } else if let array = value as? [Any] {
+            for nested in array {
+                if let found = find(nested, key: key) { return found }
+            }
+        }
+        return nil
+    }
+
+    private static func toDouble(_ value: Any) -> Double? {
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let string = value as? String { return Double(string.replacingOccurrences(of: ",", with: "")) }
+        return nil
+    }
+}
+
+private struct ProviderModelService {
+    static func query(endpoint: String, token: String) async -> [String] {
+        var base = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        while base.hasSuffix("/") { base.removeLast() }
+        var paths = ["/v1/models", "/models", "/api/models"]
+        if base.lowercased().hasSuffix("/v1") {
+            base = String(base.dropLast(3)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            paths = ["/v1/models", "/api/models", "/models"]
+        }
+        for path in paths {
+            guard let url = URL(string: base + path) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 8
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  let json = try? JSONSerialization.jsonObject(with: data) else { continue }
+            let ids = modelIDs(in: json)
+            if !ids.isEmpty { return ids.sorted() }
+        }
+        return []
+    }
+
+    private static func modelIDs(in value: Any) -> [String] {
+        if let dictionary = value as? [String: Any] {
+            if let data = dictionary["data"] { return modelIDs(in: data) }
+            var result: [String] = []
+            for (key, nested) in dictionary {
+                if let models = nested as? [Any] {
+                    result += models.compactMap { item in
+                        if let model = item as? [String: Any] { return model["id"] as? String ?? model["name"] as? String }
+                        return item as? String
+                    }
+                } else if key == "id", let id = nested as? String {
+                    result.append(id)
+                }
+            }
+            return result
+        }
+        if let array = value as? [Any] {
+            return array.compactMap { item in
+                if let model = item as? [String: Any] { return model["id"] as? String ?? model["name"] as? String }
+                return item as? String
+            }
+        }
+        return []
     }
 }
 
@@ -985,6 +1221,10 @@ private struct FeatureDetailSheet: View {
     @State private var isEnabled = true
     @State private var checkResult = "尚未检测"
     @State private var customText = ""
+    @State private var balanceSnapshots: [ProviderBalanceSnapshot] = []
+    @State private var balanceError: String?
+    @State private var isQueryingBalance = false
+    @State private var detectedModels: [String] = []
     @State private var showPromptAssistant = false
 
     var body: some View {
@@ -1070,18 +1310,34 @@ private struct FeatureDetailSheet: View {
                     .keyboardType(.URL)
                     .foregroundStyle(.primary)
                 SecureField("API Key 或 OAuth Token", text: $apiKey)
-                Button("测试连接并自动识别") { checkResult = "已连接 · 正在探测服务类型" }
-                Label(checkResult, systemImage: checkResult.contains("已连接") ? "checkmark.circle.fill" : "circle.dotted")
-                    .foregroundStyle(checkResult.contains("已连接") ? .green : .secondary)
+                Button {
+                    Task { await queryBalance() }
+                } label: {
+                    Label(isQueryingBalance ? "正在探测…" : "测试连接并自动探测", systemImage: "dot.radiowaves.left.and.right")
+                }
+                .disabled(isQueryingBalance)
+                Label(checkResult, systemImage: checkResult.contains("成功") ? "checkmark.circle.fill" : "circle.dotted")
+                    .foregroundStyle(checkResult.contains("成功") ? .green : .secondary)
+                if !detectedModels.isEmpty {
+                    Label("已读取 \(detectedModels.count) 个模型", systemImage: "list.bullet.rectangle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Section("余额概览") {
-                BalanceSummaryRow(title: "美元余额", balance: "$ 128.40", detail: "自动探测 · 刚刚更新", color: .blue)
-                BalanceSummaryRow(title: "人民币余额", balance: "¥ 86.20", detail: "自动探测 · 刚刚更新", color: .purple)
-                Button {
-                    checkResult = "余额已刷新 · 刚刚"
-                } label: {
-                    Label("刷新余额", systemImage: "arrow.clockwise")
+                if balanceSnapshots.isEmpty {
+                    BalanceSummaryRow(title: "余额", balance: "—", detail: balanceError ?? "连接后自动读取", color: .secondary)
+                } else {
+                    ForEach(balanceSnapshots) { snapshot in
+                        BalanceSummaryRow(title: "余额", balance: snapshot.displayBalance, detail: snapshot.updatedLabel, color: snapshot.unit == "quota" ? .purple : .blue)
+                    }
                 }
+                Button {
+                    Task { await queryBalance() }
+                } label: {
+                    Label(isQueryingBalance ? "正在刷新…" : "刷新余额", systemImage: "arrow.clockwise")
+                }
+                .disabled(isQueryingBalance)
             }
         }
     }
@@ -1117,9 +1373,10 @@ private struct FeatureDetailSheet: View {
                 UsageMetric(title: "请求次数", value: "428", detail: "成功率 99.1%")
             }
             Section("余额") {
-                BalanceSummaryRow(title: "美元余额", balance: "$ 128.40", detail: "自动探测 · 刚刚更新", color: .blue)
-                BalanceSummaryRow(title: "人民币余额", balance: "¥ 86.20", detail: "自动探测 · 刚刚更新", color: .purple)
-                Button("立即刷新") { }
+                BalanceSummaryRow(title: "余额", balance: "—", detail: "在服务商设置中连接后读取", color: .secondary)
+                Label("不会显示未读取或猜测的余额", systemImage: "checkmark.shield")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1176,6 +1433,28 @@ private struct FeatureDetailSheet: View {
                 Label("支持云端模型和临时权限", systemImage: "cloud.fill")
                 Label("操作会写入日志，可随时撤销", systemImage: "checkmark.shield")
             }
+        }
+    }
+
+    private func queryBalance() async {
+        guard !endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            balanceError = ProviderBalanceError.missingConfiguration.localizedDescription
+            checkResult = "等待配置"
+            return
+        }
+        isQueryingBalance = true
+        defer { isQueryingBalance = false }
+        do {
+            let snapshots = try await ProviderBalanceService.query(endpoint: endpoint, token: apiKey)
+            balanceSnapshots = snapshots
+            detectedModels = await ProviderModelService.query(endpoint: endpoint, token: apiKey)
+            balanceError = nil
+            checkResult = detectedModels.isEmpty ? "连接成功 · 已读取余额" : "连接成功 · 已读取余额和模型"
+        } catch {
+            balanceSnapshots = []
+            balanceError = error.localizedDescription
+            checkResult = "读取失败"
         }
     }
 }
