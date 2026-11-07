@@ -112,7 +112,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "IPA Starter";
+				INFOPLIST_KEY_CFBundleDisplayName = "iPad Agent";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.IPAStarter;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -128,7 +128,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "IPA Starter";
+				INFOPLIST_KEY_CFBundleDisplayName = "iPad Agent";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.IPAStarter;
 				PRODUCT_NAME = "$(TARGET_NAME)";
