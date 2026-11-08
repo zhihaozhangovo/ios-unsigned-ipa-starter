@@ -2,7 +2,7 @@
 
 SwiftUI iPad 客户端，用于连接云端 OpenAI-compatible API。应用支持多对话、流式回复、自动读取模型、Sub2API/NewAPI 用量探测、API Key Keychain 保存、系统提示词、文件附件、运行模式选择和插件入口。
 
-应用不提供本地模型。模型请求始终发送到用户配置的云端 Endpoint；“本地模式”表示在受控的本地运行环境中执行工具，“沙盒模式”表示在云端隔离环境中执行工具。只有配置并连接对应的执行服务后，工具任务才会运行。
+应用不提供本地模型。模型请求始终发送到用户配置的云端 Endpoint；“本地模式”使用应用内受控虚拟工作区和白名单工作流，“沙盒模式”表示云端隔离环境。完整 Alpine Linux 和云端沙盒需要后续接入 iSH/rootfs 或独立执行服务。
 
 ## 云端构建
 
@@ -31,6 +31,14 @@ xcodebuild \
 - NewAPI 用量：`GET /api/usage/token`
 
 请求使用 `Authorization: Bearer <API_KEY>`。Endpoint、模型和运行环境保存于应用设置；API Key 保存于 iOS Keychain。
+
+## 已接入能力
+
+- 文件选择和 OpenAI-compatible `/v1/files`、`/files` multipart 上传；上传失败时文本文件可回退为内联内容。
+- Brave、Tavily、Exa 网页研究 API。
+- NewAPI 登录态、用户模型读取和独立 access token 保存。
+- 官方 MCP Registry HTTPS 远程插件目录；iPad 不执行 stdio 插件。
+- 本地受控虚拟工作区、工作流保存、步骤超时、取消和输出回传。
 
 ## 相关文档
 

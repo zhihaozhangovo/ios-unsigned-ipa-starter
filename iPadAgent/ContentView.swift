@@ -420,9 +420,94 @@ private enum ProviderClient {
         try await URLSession.shared.data(for: makeRequest(url: url, method: "GET", token: token))
     }
 
+    static func uploadFile(endpoint: String, token: String, data: Data, filename: String) async throws -> String {
+        guard !endpoint.isEmpty, !token.isEmpty, !data.isEmpty else { throw ClientError.missingConfiguration }
+        var lastError: Error = ClientError.invalidResponse("文件上传接口不可用")
+        for url in try fileURLs(endpoint) {
+            do {
+                let boundary = "Boundary-\(UUID().uuidString)"
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.timeoutInterval = 120
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                request.httpBody = multipartBody(boundary: boundary, filename: filename, data: data)
+
+                let (responseData, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    lastError = ClientError.invalidResponse("文件上传响应缺少 HTTP 状态码")
+                    continue
+                }
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    throw ClientError.http(http.statusCode, "认证失败")
+                }
+                if http.statusCode == 404 {
+                    lastError = ClientError.http(404, "文件上传接口不存在")
+                    continue
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    throw ClientError.http(http.statusCode, responseText(responseData))
+                }
+                guard let json = try? JSONSerialization.jsonObject(with: responseData),
+                      let fileID = string(json, keys: ["file_id", "id"]) else {
+                    throw ClientError.invalidResponse("文件上传响应没有 file_id")
+                }
+                return fileID
+            } catch let error as ClientError {
+                if case .http(let code, _) = error, code == 404 {
+                    lastError = error
+                    continue
+                }
+                throw error
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = ClientError.transport(error.localizedDescription)
+            }
+        }
+        throw lastError
+    }
+
+    private static func multipartBody(boundary: String, filename: String, data: Data) -> Data {
+        let safeFilename = filename
+            .replacingOccurrences(of: "\"", with: "_")
+            .replacingOccurrences(of: "\r", with: "_")
+            .replacingOccurrences(of: "\n", with: "_")
+        let mime = UTType(filenameExtension: URL(fileURLWithPath: safeFilename).pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+        var body = Data()
+        func append(_ text: String) {
+            body.append(contentsOf: text.data(using: .utf8) ?? Data())
+        }
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"purpose\"\r\n\r\nassistants\r\n")
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(safeFilename)\"\r\n")
+        append("Content-Type: \(mime)\r\n\r\n")
+        body.append(data)
+        append("\r\n--\(boundary)--\r\n")
+        return body
+    }
+
     private static func responseText(_ data: Data) -> String {
         guard let text = String(data: data, encoding: .utf8) else { return "响应正文不可读" }
         return String(text.prefix(160))
+    }
+
+    private static func fileURLs(_ endpoint: String) throws -> [URL] {
+        var result: [URL] = []
+        for base in try baseCandidates(endpoint) {
+            let paths = base.lowercased().hasSuffix("/v1")
+                ? ["/files"]
+                : ["/v1/files", "/files"]
+            for path in paths {
+                if let url = URL(string: base + path), url.scheme != nil, url.host != nil {
+                    result.append(url)
+                }
+            }
+        }
+        return unique(result)
     }
 
     private static func unique(_ urls: [URL]) -> [URL] {
@@ -528,6 +613,8 @@ struct AgentRootView: View {
     @State private var showFileImporter = false
     @State private var attachedFileName: String?
     @State private var attachedFileContent: String?
+    @State private var attachedFileData: Data?
+    @State private var fileUploadStatus: String?
     @State private var statusText: String?
     @FocusState private var shouldFocusComposer: Bool
 
@@ -553,7 +640,9 @@ struct AgentRootView: View {
             case .success(let urls):
                 guard let url = urls.first else { return }
                 attachedFileName = url.lastPathComponent
-                attachedFileContent = readAttachment(url)
+                attachedFileData = readAttachmentData(url)
+                attachedFileContent = attachedFileData.flatMap { String(data: $0, encoding: .utf8) }
+                fileUploadStatus = attachedFileData == nil ? "无法读取文件" : "已准备上传"
             case .failure(let error):
                 statusText = error.localizedDescription
             }
@@ -615,6 +704,11 @@ struct AgentRootView: View {
             Section("工具") {
                 ToolRow(title: "插件市场", icon: "storefront", color: .green) { showSettings = true }
                 ToolRow(title: "运行环境", icon: runtimeMode.icon, color: runtimeMode.color) { showSettings = true }
+                NavigationLink {
+                    WorkflowManagerView()
+                } label: {
+                    Label("工作流", systemImage: "arrow.triangle.branch")
+                }
                 ToolRow(title: "文件与产物", icon: "folder", color: .orange) { showSettings = true }
             }
         }
@@ -747,6 +841,8 @@ struct AgentRootView: View {
                     Button {
                         self.attachedFileName = nil
                         self.attachedFileContent = nil
+                        self.attachedFileData = nil
+                        self.fileUploadStatus = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                     }
@@ -755,6 +851,12 @@ struct AgentRootView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 900, alignment: .leading)
+            }
+            if let fileUploadStatus {
+                Text(fileUploadStatus)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 900, alignment: .leading)
             }
 
             HStack(alignment: .bottom, spacing: 10) {
@@ -786,7 +888,7 @@ struct AgentRootView: View {
                         .font(.title2)
                         .foregroundStyle(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : runtimeMode.color)
                 }
-                .disabled(!isSending && composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!isSending && composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachedFileData == nil)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -829,6 +931,8 @@ struct AgentRootView: View {
         composerText = ""
         attachedFileName = nil
         attachedFileContent = nil
+        attachedFileData = nil
+        fileUploadStatus = nil
         statusText = nil
     }
 
@@ -841,28 +945,35 @@ struct AgentRootView: View {
         activeMessages = conversation.messages
         attachedFileName = nil
         attachedFileContent = nil
+        attachedFileData = nil
+        fileUploadStatus = nil
         statusText = nil
     }
 
     private func send() {
         let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isSending else { return }
+        let hasAttachment = attachedFileData != nil
+        guard (!text.isEmpty || hasAttachment), !isSending else { return }
+        let messageText = text.isEmpty ? "请分析我附加的文件。" : text
 
         if selectedConversation == nil {
-            let conversation = Conversation(title: String(text.prefix(28)))
+            let conversation = Conversation(title: String(messageText.prefix(28)))
             conversations.insert(conversation, at: 0)
             selectedConversation = conversation.id
         }
 
-        let user = ChatMessage(role: .user, text: text)
+        let user = ChatMessage(role: .user, text: messageText)
         let assistantID = UUID()
         let pendingAttachmentName = attachedFileName
         let pendingAttachmentContent = attachedFileContent
+        let pendingAttachmentData = attachedFileData
         activeMessages.append(user)
         activeMessages.append(ChatMessage(id: assistantID, role: .assistant, text: ""))
         composerText = ""
         attachedFileName = nil
         attachedFileContent = nil
+        attachedFileData = nil
+        fileUploadStatus = nil
         statusText = nil
         isSending = true
         persistActive()
@@ -883,13 +994,35 @@ struct AgentRootView: View {
             history.insert(["role": "system", "content": systemPrompt], at: 0)
         }
         let endpoint = endpoint
-        let token = SecureStore.read()
+        let apiToken = SecureStore.read()
+        let token = apiToken.isEmpty ? NewAPIService.storedToken() : apiToken
         let model = modelID
         let requestID = UUID()
         activeRequestID = requestID
         sendTask = Task {
             var responseText = ""
             do {
+                if let pendingAttachmentName, let pendingAttachmentData {
+                    fileUploadStatus = "正在上传文件…"
+                    do {
+                        let fileID = try await ProviderClient.uploadFile(
+                            endpoint: endpoint,
+                            token: token,
+                            data: pendingAttachmentData,
+                            filename: pendingAttachmentName
+                        )
+                        fileUploadStatus = "文件已上传 · \(fileID)"
+                        if let lastIndex = history.indices.last {
+                            history[lastIndex]["content"] = (history[lastIndex]["content"] ?? "")
+                                + "\n\n[已上传文件 ID：\(fileID)]"
+                        }
+                    } catch {
+                        if pendingAttachmentContent == nil {
+                            throw error
+                        }
+                        fileUploadStatus = "上传接口不可用，已使用文本内容"
+                    }
+                }
                 for try await chunk in ProviderClient.stream(endpoint: endpoint, token: token, model: model, history: Array(history)) {
                     responseText += chunk
                     if activeRequestID == requestID,
@@ -954,12 +1087,11 @@ struct AgentRootView: View {
         UserDefaults.standard.set(data, forKey: "iPadAgent.conversations")
     }
 
-    private func readAttachment(_ url: URL) -> String? {
+    private func readAttachmentData(_ url: URL) -> Data? {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
-        if let text = String(data: data, encoding: .utf8) { return text }
-        return "文件已选择，但不是可直接读取的 UTF-8 文本。文件大小：\(data.count) 字节。"
+        return data
     }
 }
 
@@ -1187,6 +1319,17 @@ private struct SettingsView: View {
                         .foregroundStyle(providerStatus.message.contains("成功") ? .green : .secondary)
                 }
 
+                Section("联网能力") {
+                    NavigationLink {
+                        IntegrationCenterView(endpoint: $endpoint, modelID: $modelID)
+                    } label: {
+                        Label("网页研究、插件与 NewAPI 登录", systemImage: "globe.americas.fill")
+                    }
+                    Text("搜索 API、官方 MCP Registry 和 NewAPI 登录态集中管理。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("余额") {
                     if let balance = providerStatus.balance {
                         HStack {
@@ -1206,6 +1349,11 @@ private struct SettingsView: View {
                     Text("模型始终使用云端 API。以下选项只决定工具执行目标；未配置执行服务时不会执行命令。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    NavigationLink {
+                        WorkflowManagerView()
+                    } label: {
+                        Label("工作流", systemImage: "arrow.triangle.branch")
+                    }
                     ForEach(RuntimeMode.allCases) { mode in
                         Button {
                             runtimeMode = mode
@@ -1289,16 +1437,17 @@ private struct SettingsView: View {
     private func testConnection() async {
         providerStatus.isLoading = true
         providerStatus.message = "正在连接…"
-        SecureStore.save(apiKey)
+        if !apiKey.isEmpty { SecureStore.save(apiKey) }
         UserDefaults.standard.set(endpoint, forKey: "iPadAgent.endpoint")
+        let effectiveToken = apiKey.isEmpty ? NewAPIService.storedToken() : apiKey
         do {
-            let models = try await ProviderClient.models(endpoint: endpoint, token: apiKey)
+            let models = try await ProviderClient.models(endpoint: endpoint, token: effectiveToken)
             if modelID.isEmpty { modelID = models.first ?? "" }
             providerStatus.models = models
             UserDefaults.standard.set(models, forKey: "iPadAgent.models")
             UserDefaults.standard.set(modelID, forKey: "iPadAgent.model")
             do {
-                providerStatus.balance = try await ProviderClient.balance(endpoint: endpoint, token: apiKey)
+                providerStatus.balance = try await ProviderClient.balance(endpoint: endpoint, token: effectiveToken)
                 if let balance = providerStatus.balance,
                    let data = try? JSONEncoder().encode(balance) {
                     UserDefaults.standard.set(data, forKey: "iPadAgent.balance")
@@ -1404,12 +1553,14 @@ private struct PromptAssistantView: View {
         isGenerating = true
         errorMessage = nil
         let request = "请为一个云端 Agent 生成可直接使用的系统提示词。用户目标：\(goalText)。要求包含角色、工作流程、工具权限边界、失败处理和输出格式。只返回提示词正文，不要解释。"
+        let apiToken = SecureStore.read()
+        let token = apiToken.isEmpty ? NewAPIService.storedToken() : apiToken
         Task {
             var result = ""
             do {
                 for try await chunk in ProviderClient.stream(
                     endpoint: endpoint,
-                    token: SecureStore.read(),
+                    token: token,
                     model: modelID,
                     history: [["role": "user", "content": request]]
                 ) {

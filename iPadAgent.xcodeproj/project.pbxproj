@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* App.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ContentView.swift */; };
+		A10000000000000000000003 /* RuntimeWorkflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* RuntimeWorkflow.swift */; };
+		A10000000000000000000004 /* Integrations.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* Integrations.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -16,6 +18,8 @@
 		A20000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* iPadAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iPadAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000004 /* Project.xcworkspace */ = {isa = PBXFileReference; lastKnownFileType = wrapper.workspace; path = Project.xcworkspace; sourceTree = "<group>"; };
+		A20000000000000000000005 /* RuntimeWorkflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeWorkflow.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* Integrations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Integrations.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +42,8 @@
 			children = (
 				A20000000000000000000001 /* App.swift */,
 				A20000000000000000000002 /* ContentView.swift */,
+				A20000000000000000000005 /* RuntimeWorkflow.swift */,
+				A20000000000000000000006 /* Integrations.swift */,
 			);
 		};
 		A40000000000000000000003 /* Products */ = {
@@ -101,6 +107,8 @@
 			files = (
 				A10000000000000000000001 /* App.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
+				A10000000000000000000003 /* RuntimeWorkflow.swift in Sources */,
+				A10000000000000000000004 /* Integrations.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
