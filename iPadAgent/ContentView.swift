@@ -509,7 +509,7 @@ private enum ProviderClient {
     }
 }
 
-private struct AgentRootView: View {
+struct AgentRootView: View {
     @AppStorage("iPadAgent.runtimeMode") private var storedRuntime = RuntimeMode.local.rawValue
     @AppStorage("iPadAgent.endpoint") private var endpoint = ""
     @AppStorage("iPadAgent.model") private var modelID = ""
