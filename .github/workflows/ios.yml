@@ -1,4 +1,4 @@
-name: Build unsigned IPA
+name: Build iPadAgent unsigned IPA
 
 on:
   push:
@@ -15,14 +15,18 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Build for iPhoneOS without signing
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Build iPadAgent for iPadOS without signing
         run: |
           set -euo pipefail
           xcodebuild \
-            -project IPAStarter.xcodeproj \
-            -scheme IPAStarter \
+            -project iPadAgent.xcodeproj \
+            -scheme iPadAgent \
             -configuration Release \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -32,17 +36,19 @@ jobs:
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
-          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/IPAStarter.app"
+          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/iPadAgent.app"
           test -d "$APP_PATH"
+          rm -rf build/Payload build/iPadAgent-unsigned.ipa
           mkdir -p build/Payload
-          cp -R "$APP_PATH" build/Payload/IPAStarter.app
-          (cd build && /usr/bin/zip -qry IPA-Starter-unsigned.ipa Payload)
-          unzip -l build/IPA-Starter-unsigned.ipa
+          cp -R "$APP_PATH" build/Payload/iPadAgent.app
+          (cd build && /usr/bin/zip -qry iPadAgent-unsigned.ipa Payload)
+          /usr/bin/unzip -t build/iPadAgent-unsigned.ipa
+          /usr/bin/unzip -l build/iPadAgent-unsigned.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-ipa
-          path: build/IPA-Starter-unsigned.ipa
+          name: iPadAgent-unsigned-ipa
+          path: build/iPadAgent-unsigned.ipa
           if-no-files-found: error
           retention-days: 7
